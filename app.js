@@ -17,7 +17,12 @@ const TYPES = {
   tuer:    { name: 'Innentür',              f: [['B', 'Rohbau Breite'], ['H', 'Rohbau Höhe ab OFF'], ['W', 'Wandstärke']], anschlag: true },
   fenster: { name: 'Fenster / Haustür',     f: [['B', 'Rohbau Breite'], ['H', 'Rohbau Höhe'], ['Br', 'Brüstungshöhe'], ['Lt', 'Laibungstiefe']], anschlag: true },
   frei:    { name: 'Freies Maß',            f: [['M1', 'Maß 1'], ['M2', 'Maß 2'], ['M3', 'Maß 3']] },
+  skizze:  { name: 'Skizze / Grundriss',    f: [] },
 };
+// Bild = { bg: Foto oder null, shapes: [...], png: fertiges Bild }; alte Einträge waren nur Foto-Strings
+const pic = p => typeof p === 'string' ? { bg: p, shapes: [], png: p } : p;
+const skLines = p => pic(p).shapes.filter(s => s.t === 'line');
+const skText = (it) => it.photos.map((p, k) => { const ls = skLines(p).filter(s => s.mm != null); return ls.length ? `Bild ${k + 1}: ` + ls.map(s => `${s.n} = ${fmtMM(s.mm)}`).join(', ') : ''; }).filter(Boolean);
 
 // ---------- Hilfen ----------
 const $ = s => document.querySelector(s);
@@ -200,7 +205,7 @@ function applyMeasurement(mm) {
   const f = lastField && document.body.contains(lastField) ? lastField : null;
   if (!f) { toast('Messung ' + fmtMM(mm) + ' mm – erst ein Feld antippen', 3500); return; }
   f.value = fmtMM(mm); f.dispatchEvent(new Event('change')); f.classList.remove('flash'); void f.offsetWidth; f.classList.add('flash');
-  focusNext(f);
+  if (!f.dataset.stay) focusNext(f);
 }
 function focusNext(f) {
   const all = [...document.querySelectorAll('input[data-m]')];
@@ -222,6 +227,7 @@ async function render() {
   if (state.view === 'aufmass') return renderAufmass(v, await A.get(state.arg));
   if (state.view === 'item') return renderItem(v, await A.get(state.arg.a), state.arg.i);
   if (state.view === 'settings') return renderSettings(v);
+  if (state.view === 'sketch') return renderSketch(v, await A.get(state.arg.a), state.arg.i, state.arg.k);
 }
 
 async function renderList(v) {
@@ -247,6 +253,7 @@ function summary(it) {
   const t = TYPES[it.type];
   const parts = t.f.filter(([k]) => it.v[k] != null && it.v[k] !== '').map(([k, l]) => `${l} ${fmtMM(it.v[k])}`);
   if (it.anschlag) parts.push('DIN ' + it.anschlag);
+  parts.push(...skText(it));
   return parts.join(' · ');
 }
 
@@ -283,6 +290,7 @@ async function renderAufmass(v, a) {
     const n = a.items.filter(i => i.type === t && (i.raum || '') === raum).length + 1;
     a.items.push({ id: uid(), type: t, raum, label: TYPES[t].name + (n > 1 ? ' ' + n : ''), v: {}, notiz: '', photos: [], anschlag: '' });
     await save(); go('item', { a: a.id, i: a.items.length - 1 });
+    if (t === 'skizze') go('sketch', { a: a.id, i: a.items.length - 1, k: -1 });
   });
   v.querySelectorAll('.item[data-i]').forEach(el => el.onclick = () => go('item', { a: a.id, i: +el.dataset.i }));
   $('#up').onclick = () => uploadOne(a.id, true);
@@ -299,14 +307,17 @@ async function renderItem(v, a, i) {
     <div class="card">
       <div class="row"><div><label>Bezeichnung</label><input id="lbl" value="${esc(it.label)}"></div><div><label>Raum</label><input id="raum" value="${esc(it.raum)}"></div></div>
     </div>
-    <div class="card"><h2>${t.name}</h2><p class="muted">Feld antippen, dann messen (Nedo oder Laser). Der Wert springt danach ins nächste Feld.</p>
+    <div class="card ${t.f.length ? '' : 'hidden'}"><h2>${t.name}</h2><p class="muted">Feld antippen, dann messen (Nedo oder Laser). Der Wert springt danach ins nächste Feld.</p>
       <div class="m">${t.f.map(([k, l]) => `<div class="f"><label>${l}</label><input data-m="${k}" inputmode="decimal" autocomplete="off" value="${fmtMM(it.v[k])}"><span class="u">mm</span></div>`).join('')}</div>
       ${t.anschlag ? `<label>Anschlag / Öffnungsrichtung</label><select id="ans"><option value="">–</option>${['links', 'rechts', 'zweiflügelig', 'Schiebetür'].map(o => `<option ${it.anschlag === o ? 'selected' : ''}>${o}</option>`).join('')}</select>` : ''}
     </div>
-    <div class="card"><h2>Notiz & Fotos</h2>
+    <div class="card"><h2>Fotos & Skizzen</h2>
+      <p class="muted">Bild antippen = darauf zeichnen und Maße per Messgerät eintragen.</p>
+      <div class="row"><label class="btn sec" style="text-align:center;margin:0">📷 Foto<input id="foto" type="file" accept="image/*" capture="environment" hidden></label><button class="btn sec" id="skz">✏️ Neue Skizze</button></div>
+      <div class="photos">${it.photos.map((p, k) => `<img src="${pic(p).png}" data-k="${k}">`).join('')}</div>
+      ${skText(it).map(s => `<div class="muted">${esc(s)}</div>`).join('')}
+      <label>Notiz</label>
       <textarea id="notiz" placeholder="Besonderheiten, Steckdosen, Leitungen, Schrägen…">${esc(it.notiz)}</textarea>
-      <div class="row" style="margin-top:10px"><label class="btn sec" style="text-align:center;margin:0">📷 Foto<input id="foto" type="file" accept="image/*" capture="environment" hidden></label></div>
-      <div class="photos">${it.photos.map((p, k) => `<img src="${p}" data-k="${k}" title="Tippen zum Löschen">`).join('')}</div>
     </div>
     <div class="card row"><button class="btn" id="ok">Fertig</button><button class="btn sec" id="copy">Kopieren</button><button class="btn del" id="del">Löschen</button></div>`;
   const save = () => A.put(a);
@@ -320,11 +331,121 @@ async function renderItem(v, a, i) {
   $('#raum').onchange = e => { it.raum = e.target.value.trim(); save(); };
   $('#notiz').onchange = e => { it.notiz = e.target.value; save(); };
   if ($('#ans')) $('#ans').onchange = e => { it.anschlag = e.target.value; save(); };
-  $('#foto').onchange = async e => { const f = e.target.files[0]; if (!f) return; it.photos.push(await shrink(f)); await save(); render(); };
-  v.querySelectorAll('.photos img').forEach(img => img.onclick = async () => { if (confirm('Foto löschen?')) { it.photos.splice(+img.dataset.k, 1); await save(); render(); } });
+  $('#foto').onchange = async e => { const f = e.target.files[0]; if (!f) return; const d = await shrink(f); it.photos.push({ bg: d, shapes: [], png: d }); await save(); render(); };
+  $('#skz').onclick = () => go('sketch', { a: a.id, i, k: -1 });
+  v.querySelectorAll('.photos img').forEach(img => img.onclick = () => go('sketch', { a: a.id, i, k: +img.dataset.k }));
   $('#ok').onclick = async () => { document.activeElement && document.activeElement.blur(); await save(); back(); };
   $('#copy').onclick = async () => { const c = JSON.parse(JSON.stringify(it)); c.id = uid(); c.label += ' (Kopie)'; c.photos = []; a.items.push(c); await save(); state.arg = { a: a.id, i: a.items.length - 1 }; render(); };
   $('#del').onclick = async () => { if (confirm('Position löschen?')) { a.items.splice(i, 1); await save(); back(); } };
+}
+
+// ---------- Skizzen-Editor ----------
+// Werkzeuge: Maßlinie (ziehen → Wert per Laser/Nedo/Tastatur), Stift, Text. Linie antippen = auswählen.
+const COLORS = ['#d32f2f', '#111111', '#1565c0'];
+async function renderSketch(v, a, i, k) {
+  const it = a && a.items[i];
+  if (!it) return back();
+  const src = k >= 0 && it.photos[k] ? pic(it.photos[k]) : { bg: null, shapes: [] };
+  const sk = { bg: src.bg, shapes: JSON.parse(JSON.stringify(src.shapes)) };
+  $('#title').textContent = (it.raum ? it.raum + ' – ' : '') + it.label + ' – Skizze';
+  v.innerHTML = `
+    <div class="sktools card">
+      <div class="row">
+        <button class="btn sec small" data-tool="line">📏 Maßlinie</button>
+        <button class="btn sec small" data-tool="pen">✏️ Stift</button>
+        <button class="btn sec small" data-tool="rect">▭ Rechteck</button>
+        <button class="btn sec small" data-tool="text">T Text</button>
+        ${COLORS.map(c => `<button class="btn sec small sw" data-c="${c}" style="background:${c}"></button>`).join('')}
+        <button class="btn sec small" id="undo">↶</button>
+      </div>
+    </div>
+    <div class="skwrap"><canvas id="cv"></canvas></div>
+    <div class="card skbar">
+      <div class="row">
+        <div style="flex:2"><label id="selname">Maßlinie ziehen, dann messen</label>
+          <div class="m" style="display:block"><div class="f"><input id="skm" data-stay="1" inputmode="decimal" autocomplete="off" placeholder="—"><span class="u">mm</span></div></div></div>
+        <button class="btn del small" id="seldel" style="flex:0 0 auto">Linie löschen</button>
+      </div>
+      <div class="row" style="margin-top:10px"><button class="btn" id="ok">Speichern</button><button class="btn sec" id="cancel">Abbrechen</button>${k >= 0 ? '<button class="btn del" id="del">Bild löschen</button>' : ''}</div>
+    </div>`;
+  const cv = $('#cv'), ctx = cv.getContext('2d'), inp = $('#skm');
+  let bgImg = null, tool = 'line', color = COLORS[0], sel = -1, cur = null;
+  if (sk.bg) { bgImg = await new Promise(r => { const im = new Image(); im.onload = () => r(im); im.onerror = () => r(null); im.src = sk.bg; }); }
+  cv.width = bgImg ? bgImg.width : 1600; cv.height = bgImg ? bgImg.height : 1100;
+  const lw = Math.max(3, cv.width / 400), fs = Math.max(26, cv.width / 38);
+  const setTool = t => { tool = t; v.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t)); };
+  const setColor = c => { color = c; v.querySelectorAll('[data-c]').forEach(b => b.classList.toggle('on', b.dataset.c === c)); };
+  setTool('line'); setColor(color);
+  const nextLetter = () => { const n = sk.shapes.filter(s => s.t === 'line').length; return n < 26 ? String.fromCharCode(65 + n) : 'L' + (n + 1); };
+
+  function label(s, hi) {
+    const mx = (s.a[0] + s.b[0]) / 2, my = (s.a[1] + s.b[1]) / 2;
+    let ang = Math.atan2(s.b[1] - s.a[1], s.b[0] - s.a[0]); if (ang > Math.PI / 2 || ang < -Math.PI / 2) ang += Math.PI;
+    const txt = s.n + (s.mm != null ? ' = ' + fmtMM(s.mm) : ' = ?');
+    ctx.save(); ctx.translate(mx, my); ctx.rotate(ang); ctx.font = `bold ${fs}px Arial`;
+    const w = ctx.measureText(txt).width + fs * 0.6;
+    ctx.fillStyle = hi ? '#80BD01' : 'rgba(255,255,255,.92)'; ctx.fillRect(-w / 2, -fs * 1.55, w, fs * 1.25);
+    ctx.fillStyle = hi ? '#fff' : s.c; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(txt, 0, -fs * 0.92);
+    ctx.restore();
+  }
+  function draw(final) {
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+    if (bgImg) ctx.drawImage(bgImg, 0, 0);
+    else { ctx.strokeStyle = '#e6e9e0'; ctx.lineWidth = 1; for (let x = 0; x < cv.width; x += 50) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, cv.height); ctx.stroke(); } for (let y = 0; y < cv.height; y += 50) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(cv.width, y); ctx.stroke(); } }
+    const all = cur ? [...sk.shapes, cur] : sk.shapes;
+    all.forEach((s, idx) => {
+      const hi = !final && idx === sel;
+      ctx.strokeStyle = hi ? '#80BD01' : s.c; ctx.lineWidth = hi ? lw * 1.8 : lw; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      if (s.t === 'pen') { ctx.beginPath(); s.pts.forEach((p, j) => j ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.stroke(); }
+      else if (s.t === 'rect') { ctx.strokeRect(Math.min(s.a[0], s.b[0]), Math.min(s.a[1], s.b[1]), Math.abs(s.b[0] - s.a[0]), Math.abs(s.b[1] - s.a[1])); }
+      else if (s.t === 'text') { ctx.font = `bold ${fs}px Arial`; ctx.fillStyle = s.c; ctx.textBaseline = 'middle'; ctx.fillText(s.s, s.p[0], s.p[1]); }
+      else if (s.t === 'line') {
+        ctx.beginPath(); ctx.moveTo(s.a[0], s.a[1]); ctx.lineTo(s.b[0], s.b[1]); ctx.stroke();
+        const ang = Math.atan2(s.b[1] - s.a[1], s.b[0] - s.a[0]) + Math.PI / 2, t = fs * 0.6;
+        [s.a, s.b].forEach(p => { ctx.beginPath(); ctx.moveTo(p[0] - Math.cos(ang) * t, p[1] - Math.sin(ang) * t); ctx.lineTo(p[0] + Math.cos(ang) * t, p[1] + Math.sin(ang) * t); ctx.stroke(); });
+        label(s, hi);
+      }
+    });
+  }
+  function select(idx) {
+    sel = idx; const s = sk.shapes[idx];
+    if (s && s.t === 'line') { $('#selname').textContent = `Maß ${s.n} – jetzt messen oder eintippen`; inp.value = fmtMM(s.mm); lastField = inp; if (!laser.chr) inp.focus({ preventScroll: true }); }
+    else { sel = -1; $('#selname').textContent = 'Maßlinie ziehen, dann messen'; inp.value = ''; lastField = null; }
+    draw();
+  }
+  const pt = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height]; };
+  const distSeg = (p, a, b) => { const dx = b[0] - a[0], dy = b[1] - a[1], l = dx * dx + dy * dy || 1; let t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l; t = Math.max(0, Math.min(1, t)); return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy); };
+  const hit = p => { let best = -1, bd = fs * 1.5; sk.shapes.forEach((s, idx) => { if (s.t === 'line') { const d = distSeg(p, s.a, s.b); if (d < bd) { bd = d; best = idx; } } }); return best; };
+
+  cv.onpointerdown = e => {
+    e.preventDefault(); cv.setPointerCapture(e.pointerId); const p = pt(e);
+    if (tool === 'text') { const s = prompt('Text:'); if (s) { sk.shapes.push({ t: 'text', p, s, c: color }); draw(); } return; }
+    if (tool === 'pen') cur = { t: 'pen', pts: [p], c: color };
+    else cur = { t: tool, a: p, b: p, c: color, n: tool === 'line' ? nextLetter() : undefined, mm: null };
+  };
+  cv.onpointermove = e => { if (!cur) return; const p = pt(e); if (cur.t === 'pen') cur.pts.push(p); else cur.b = p; draw(); };
+  cv.onpointerup = e => {
+    if (!cur) return; const c = cur; cur = null;
+    const len = c.t === 'pen' ? c.pts.length : Math.hypot(c.b[0] - c.a[0], c.b[1] - c.a[1]);
+    if ((c.t === 'pen' && len < 3) || (c.t !== 'pen' && len < fs)) { select(hit(c.a)); return; } // Antippen = Linie wählen
+    sk.shapes.push(c);
+    if (c.t === 'line') select(sk.shapes.length - 1); else draw();
+  };
+  inp.onchange = () => { const s = sk.shapes[sel]; if (!s || s.t !== 'line') { inp.value = ''; return; } const mm = parseMM(inp.value, settings.unit); s.mm = mm == null ? null : Math.round(mm); inp.value = fmtMM(s.mm); draw(); };
+  inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); inp.onchange(); select(-1); } };
+  v.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => setTool(b.dataset.tool));
+  v.querySelectorAll('[data-c]').forEach(b => b.onclick = () => setColor(b.dataset.c));
+  $('#undo').onclick = () => { sk.shapes.pop(); select(-1); };
+  $('#seldel').onclick = () => { if (sel >= 0) { sk.shapes.splice(sel, 1); select(-1); } };
+  $('#cancel').onclick = () => back();
+  $('#ok').onclick = async () => {
+    inp.onchange(); draw(true);
+    const out = { bg: sk.bg, shapes: sk.shapes, png: cv.toDataURL('image/jpeg', 0.85) };
+    if (k >= 0) it.photos[k] = out; else it.photos.push(out);
+    lastField = null; await A.put(a); back();
+  };
+  if ($('#del')) $('#del').onclick = async () => { if (confirm('Bild löschen?')) { it.photos.splice(k, 1); lastField = null; await A.put(a); back(); } };
+  draw();
 }
 
 function shrink(file, max = 1600) {
@@ -378,9 +499,9 @@ function pageHtml(a, withImgs) {
   const body = raeume.map(r => `
     <h2 style="font-family:Arial;color:#5f8c00">${esc(r || 'ohne Raum')}</h2>
     <table style="border-collapse:collapse"><tr><th ${th}>Position</th><th ${th}>Maße (mm)</th><th ${th}>Notiz</th></tr>
-    ${a.items.filter(i => (i.raum || '') === r).map(it => `<tr><td ${td}><b>${esc(it.label)}</b></td><td ${td}>${TYPES[it.type].f.filter(([k]) => it.v[k] != null).map(([k, l]) => `${esc(l)}: <b>${fmtMM(it.v[k])}</b>`).join('<br/>')}${it.anschlag ? '<br/>Anschlag: ' + esc(it.anschlag) : ''}</td><td ${td}>${esc(it.notiz).replace(/\n/g, '<br/>')}</td></tr>`).join('')}
+    ${a.items.filter(i => (i.raum || '') === r).map(it => `<tr><td ${td}><b>${esc(it.label)}</b></td><td ${td}>${TYPES[it.type].f.filter(([k]) => it.v[k] != null).map(([k, l]) => `${esc(l)}: <b>${fmtMM(it.v[k])}</b>`).join('<br/>')}${it.anschlag ? '<br/>Anschlag: ' + esc(it.anschlag) : ''}${skText(it).map(s => '<br/>' + esc(s)).join('')}</td><td ${td}>${esc(it.notiz).replace(/\n/g, '<br/>')}</td></tr>`).join('')}
     </table>
-    ${a.items.filter(i => (i.raum || '') === r).flatMap(it => it.photos.map(p => { const n = 'img' + img++; parts.push([n, p]); return `<p style="font-family:Arial;font-size:9pt">${esc(it.label)}</p>` + (withImgs ? `<img src="${withImgs === 'inline' ? p : 'name:' + n}" width="480"/>` : ''); })).join('')}`).join('');
+    ${a.items.filter(i => (i.raum || '') === r).flatMap(it => it.photos.map((ph, k) => { const p = pic(ph).png; const n = 'img' + img++; parts.push([n, p]); return `<p style="font-family:Arial;font-size:9pt">${esc(it.label)} – Bild ${k + 1}</p>` + (withImgs ? `<img src="${withImgs === 'inline' ? p : 'name:' + n}" width="480"/>` : ''); })).join('')}`).join('');
   const title = `Aufmaß ${fmtDate(a.created)}${settings.name ? ' – ' + settings.name : ''}`;
   const html = `<!DOCTYPE html><html><head><title>${esc(title)}</title><meta name="created" content="${new Date(a.created).toISOString()}"/></head><body>
     <p style="font-family:Arial;font-size:14pt;color:#80BD01"><b>Schreinerei Patrick Weiss – Aufmaß</b></p>

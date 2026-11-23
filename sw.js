@@ -1,5 +1,5 @@
 // Offline-Cache: App-Dateien liegen nach dem ersten Aufruf komplett auf dem Gerät.
-const CACHE = 'aufmass-v1';
+const CACHE = 'aufmass-v2';
 const FILES = ['./', './index.html', './app.js', './style.css', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', e => {
