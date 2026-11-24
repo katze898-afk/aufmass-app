@@ -1,6 +1,6 @@
 // Offline-Cache: App-Dateien liegen nach dem ersten Aufruf komplett auf dem Gerät.
-const CACHE = 'aufmass-v3';
-const FILES = ['./', './index.html', './app.js', './style.css', './manifest.webmanifest', './icon.svg'];
+const CACHE = 'aufmass-v4';
+const FILES = ['./', './index.html', './app.js', './style.css', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));

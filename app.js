@@ -236,6 +236,7 @@ async function renderList(v) {
   const open = all.filter(a => a.status !== 'hochgeladen').length;
   v.innerHTML = `
     <div class="card">
+      ${installEvt ? '<div class="row" style="margin-bottom:10px"><button class="btn" id="inst">⬇ App installieren</button></div>' : ''}
       <div class="row"><button class="btn" id="new">+ Neues Aufmaß</button><button class="btn sec" id="sync">Hochladen (${open})</button><button class="btn sec" id="set">Einstellungen</button></div>
     </div>
     <div class="card list">${all.length ? all.map(a => `
@@ -245,6 +246,7 @@ async function renderList(v) {
   $('#new').onclick = async () => { const a = { id: uid(), created: Date.now(), projekt: null, projektText: '', notiz: '', items: [], status: 'offen' }; await A.put(a); go('aufmass', a.id); };
   $('#sync').onclick = () => uploadAll(false);
   $('#set').onclick = () => go('settings');
+  if ($('#inst')) $('#inst').onclick = async () => { installEvt.prompt(); await installEvt.userChoice; installEvt = null; render(); };
   v.querySelectorAll('.item').forEach(el => el.onclick = () => go('aufmass', el.dataset.id));
 }
 const projName = a => a.projekt ? a.projekt.name : a.projektText;
@@ -546,6 +548,9 @@ async function shareFile(a) {
 }
 
 // ---------- Start ----------
+let installEvt = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; if (state.view === 'list') render(); });
+window.addEventListener('appinstalled', () => { installEvt = null; toast('App installiert'); if (state.view === 'list') render(); });
 function netState() { const on = navigator.onLine; const s = $('#stNet'); s.textContent = on ? 'online' : 'offline'; s.className = 'pill ' + (on ? 'on' : 'busy'); }
 window.addEventListener('online', () => { netState(); uploadAll(true); refreshProjects(true); });
 window.addEventListener('offline', netState);
